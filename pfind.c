@@ -199,6 +199,7 @@ void searchDirectory(long my_id) { // my_id previously used for debugging
             pthread_cond_signal(next_thread->cv);
         }
         else { // if the queue is empty and all other threads are not in queue, this search is done
+            printf("Thread %ld did some work and is now out!\n",my_id);
             pthread_exit(NULL);
         }
     }
@@ -247,6 +248,7 @@ void *search_thread_func(void *t) {
     pthread_mutex_unlock(&thread_mutex);
 
     if (path_queue->size == 0) { // if thread was awakened to an empty path queue, search is done and all threads exit
+        printf("Thread %ld did 0 work and is now out!\n",my_id);
         pthread_exit(NULL);
     }
 
