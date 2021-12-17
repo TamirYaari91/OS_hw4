@@ -9,6 +9,10 @@
 
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
+// Tamir Yaari - 304842990 //
+
+// Structs for 2 FIFO queues - one to store threads and another to store paths
+
 typedef struct pathNode {
     char *path;
     struct pathNode *next;
@@ -30,6 +34,7 @@ typedef struct threadQueue {
     unsigned int size;
 } threadQueue;
 
+// Queue functions for the 2 queues - create queue, create node, enqueue, dequeue, print queue (for debugging)
 
 threadNode *newThreadNode(long tid, pthread_cond_t *cv) {
     threadNode *temp = malloc(sizeof(struct threadNode));
@@ -153,16 +158,15 @@ pathNode *pathNode_deQueue(pathQueue *q) {
     return temp;
 }
 
-long *thread_ids;
-const char *st;
+long *thread_ids; // will store thread IDs
+const char *st; // will store the search term
 long num_of_threads;
-pthread_mutex_t count_mutex;
-pthread_mutex_t path_queue_mutex;
-pthread_cond_t *cv_arr;
-pthread_cond_t empty_path_queue_cv;
+pthread_mutex_t thread_mutex; // lock used in most critical sections
+pthread_mutex_t path_queue_mutex; // lock used for enqueue / dequeue from paths queue
+pthread_cond_t *cv_arr; // array of condition variables - one for each thread
 threadQueue *thread_queue;
 pathQueue *path_queue;
-atomic_int numFilesFound = 0;
+atomic_int numFilesFound = 0; // to be printed eventually
 
 int isDirectory(const char *path) {
     struct stat stat_buf;
@@ -172,7 +176,7 @@ int isDirectory(const char *path) {
 }
 
 
-void searchDirectory() {
+void searchDirectory(long my_id) { // my_id previously used for debugging
     char *path = malloc(sizeof(char) * PATH_MAX);
     if (path == NULL) {
         perror("Memory allocation failed.");
@@ -189,9 +193,14 @@ void searchDirectory() {
     char *found;
     pathNode *p;
 
-    if (path_queue->size == 0) {
-        printf("Done searching, found %d files\n", numFilesFound);
-        exit(0);
+    while (path_queue->size == 0) {
+        if (thread_queue->size > 0) {
+            threadNode *next_thread = threadNode_deQueue(thread_queue);
+            pthread_cond_signal(next_thread->cv);
+        }
+        else { // if the queue is empty and all other threads are not in queue, this search is done
+            pthread_exit(NULL);
+        }
     }
     pthread_mutex_lock(&path_queue_mutex);
     p = pathNode_deQueue(path_queue);
@@ -201,7 +210,7 @@ void searchDirectory() {
         printf("Directory %s: Permission denied.\n", p->path);
         return;
     }
-    while ((dp = readdir(dir)) != NULL) {
+    while ((dp = readdir(dir)) != NULL) { // each dp is an entry in the directory
         entry_name = dp->d_name;
         if (strcmp(entry_name, ".") != 0 && strcmp(entry_name, "..") != 0) {
             strcpy(path, p->path);
@@ -210,10 +219,10 @@ void searchDirectory() {
 
             if (isDirectory(path)) {
                 pthread_mutex_lock(&path_queue_mutex);
-                pathNode_enQueue(path_queue, path, 0);
+                pathNode_enQueue(path_queue, path, 0); // enqueuing to path queue
                 pthread_mutex_unlock(&path_queue_mutex);
             } else {
-                found = strstr(entry_name, st);
+                found = strstr(entry_name, st); // entry found!
                 if (found) {
                     strcpy(display_path, p->path);
                     strcat(display_path, "/");
@@ -222,57 +231,53 @@ void searchDirectory() {
                     numFilesFound++;
                 }
             }
-
         }
     }
     closedir(dir);
     free(p);
 }
 
-
-//----------------------------------------------------------------------------
-void *inc_count(void *t) {
+void *search_thread_func(void *t) {
     long my_id = (long) t;
     int i;
     threadNode *next_thread;
 
-    pthread_mutex_lock(&count_mutex);
-    pthread_cond_wait(&cv_arr[my_id], &count_mutex);
+    pthread_mutex_lock(&thread_mutex);
+    pthread_cond_wait(&cv_arr[my_id], &thread_mutex);
+    pthread_mutex_unlock(&thread_mutex);
+
+    if (path_queue->size == 0) { // if thread was awakened to an empty path queue, search is done and all threads exit
+        pthread_exit(NULL);
+    }
+
     while (thread_queue->size > 0) {
-        searchDirectory();
-        pthread_mutex_unlock(&count_mutex);
+        searchDirectory(my_id); // main search function
         if (my_id != num_of_threads) { // not driver thread
-            pthread_mutex_lock(&count_mutex);
+            pthread_mutex_lock(&thread_mutex);
             if (thread_queue->size > 0) {
-                for (i = 0; i < MIN(path_queue->size, thread_queue->size); i++) {
+                for (i = 0; i < MIN(path_queue->size, thread_queue->size); i++) { // awakens the next k threads
                     next_thread = threadNode_deQueue(thread_queue);
                     pthread_cond_signal(next_thread->cv);
                     if (path_queue->size > 0) {
                         if (next_thread->tid != my_id) {
-                            pthread_cond_wait(&cv_arr[my_id], &count_mutex);
+                            pthread_cond_wait(&cv_arr[my_id], &thread_mutex); // goes to sleep until needed
                         }
                         threadNode_enQueue(thread_queue, next_thread);
                     }
                 }
-            } else {
-                pthread_cond_wait(&empty_path_queue_cv, &count_mutex);
             }
-            pthread_mutex_unlock(&count_mutex);
+            pthread_mutex_unlock(&thread_mutex);
         }
     }
     pthread_exit(NULL);
 }
 
-void *watch_count() { // Driver thread - this thread will initiate the search
-    pthread_mutex_lock(&count_mutex);
+void *driver_thread_func() { // Driver thread - this thread will initiate the search
+    pthread_mutex_lock(&thread_mutex);
     threadNode *first_thread = threadNode_deQueue(thread_queue);
     threadNode_enQueue(thread_queue, first_thread);
     pthread_cond_signal(first_thread->cv);
-    pthread_mutex_unlock(&count_mutex);
-
-    pthread_mutex_lock(&count_mutex);
-    pthread_cond_broadcast(&empty_path_queue_cv);
-    pthread_mutex_unlock(&count_mutex);
+    pthread_mutex_unlock(&thread_mutex);
     pthread_exit(NULL);
 }
 
@@ -294,18 +299,18 @@ int main(int argc, char *argv[]) {
     num_of_threads = strtol(argv[3], &ptr, 10);
 
     dir = opendir(startPath);
-    if (!dir) {
+    if (!dir) { // validate that given startPath can be searched
         perror("Search root directory given cannot be searched!");
         exit(1);
     }
 
-    pthread_t threads[num_of_threads + 1];
+    pthread_t threads[num_of_threads + 1]; // one extra thread for the driver thread
     cv_arr = malloc(sizeof(pthread_cond_t) * num_of_threads);
     if (cv_arr == NULL) {
         perror("Memory allocation failed.");
         exit(1);
     }
-    thread_ids = malloc(sizeof(long) * (num_of_threads + 1)); //TODO - Error handling
+    thread_ids = malloc(sizeof(long) * (num_of_threads + 1));
     if (thread_ids == NULL) {
         perror("Memory allocation failed.");
         exit(1);
@@ -315,15 +320,14 @@ int main(int argc, char *argv[]) {
     pathNode_enQueue(path_queue, startPath, 1);
 
     // Initialize mutex and condition variable objects
-    pthread_mutex_init(&count_mutex, NULL);
+    pthread_mutex_init(&thread_mutex, NULL);
     pthread_mutex_init(&path_queue_mutex, NULL);
-    pthread_cond_init(&empty_path_queue_cv, NULL);
     for (i = 0; i < num_of_threads + 1; i++) {
         pthread_cond_init(&cv_arr[i], NULL);
         thread_ids[i] = i;
     }
     for (i = 0; i < num_of_threads; i++) {
-        rc = pthread_create(&threads[i], NULL, inc_count, (void *) thread_ids[i]);
+        rc = pthread_create(&threads[i], NULL, search_thread_func, (void *) thread_ids[i]);
         if (rc) {
             printf("ERROR in pthread_create(): ""%s\n", strerror(rc));
             exit(1);
@@ -333,7 +337,7 @@ int main(int argc, char *argv[]) {
         threadNode *node = newThreadNode(thread_ids[i], &cv_arr[i]);
         threadNode_enQueue(thread_queue, node);
     }
-    rc = pthread_create(&threads[num_of_threads], NULL, watch_count, NULL); // driver
+    rc = pthread_create(&threads[num_of_threads], NULL, driver_thread_func, NULL); // driver
     if (rc) {
         printf("ERROR in pthread_create(): ""%s\n", strerror(rc));
         exit(1);
@@ -347,11 +351,11 @@ int main(int argc, char *argv[]) {
         }
     }
     // Clean up and exit
-    pthread_mutex_destroy(&count_mutex);
+    pthread_mutex_destroy(&thread_mutex);
     pthread_mutex_destroy(&path_queue_mutex);
     for (i = 0; i < num_of_threads + 1; i++) {
         pthread_cond_destroy(&cv_arr[i]);
     }
-    pthread_cond_destroy(&empty_path_queue_cv);
+    printf("Done searching, found %d files\n", numFilesFound);
     pthread_exit(NULL);
 }
