@@ -249,6 +249,10 @@ void *search_thread_func(void *t) {
 
     if (path_queue->size == 0) { // if thread was awakened to an empty path queue, search is done and all threads exit
         printf("Thread %ld did 0 work and is now out!\n",my_id);
+        if (thread_queue->size > 0) {
+            next_thread = threadNode_deQueue(thread_queue);
+            pthread_cond_signal(next_thread->cv);
+        }
         pthread_exit(NULL);
     }
 
