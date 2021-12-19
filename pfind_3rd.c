@@ -1,3 +1,5 @@
+#define _BSD_SOURCE
+
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -289,7 +291,8 @@ void *search_thread_func(void *t) {
             pthread_mutex_unlock(&thread_mutex);
             if (search_path != NULL) {
                 searchDirectory(my_id, search_path->path); // main search function
-                usleep(10);
+                usleep(1);
+
             }
             else {
 //                printf("Thread %ld - path_queue size was %d but got a null search path! let's go to sleep\n"
@@ -318,6 +321,9 @@ void *search_thread_func(void *t) {
             else {
                 printf("NOT SURE\n");
             }
+        }
+        else {
+            printf("waiting here\n");
         }
         pthread_cond_wait(&cv_arr[my_id], &thread_mutex);
         pthread_mutex_unlock(&thread_mutex);
