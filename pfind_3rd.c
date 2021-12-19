@@ -183,7 +183,6 @@ int getThreadQueueSize(threadQueue *q) {
     return cnt;
 }
 
-long *thread_ids; // will store thread IDs
 const char *st; // will store the search term
 long num_of_threads;
 pthread_mutex_t thread_mutex; // lock used in most critical sections
@@ -322,9 +321,9 @@ void *search_thread_func(void *t) {
                 printf("NOT SURE\n");
             }
         }
-        else {
-            printf("waiting here\n");
-        }
+//        else {
+//            printf("waiting here\n");
+//        }
         pthread_cond_wait(&cv_arr[my_id], &thread_mutex);
         pthread_mutex_unlock(&thread_mutex);
     }
@@ -361,7 +360,7 @@ void *driver_thread_func() { // Driver thread - this thread will initiate the se
 
 //----------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
-    int i;
+    long i;
     int rc;
     char *startPath;
     char *ptr;
@@ -387,11 +386,6 @@ int main(int argc, char *argv[]) {
         perror("Memory allocation failed.");
         exit(1);
     }
-    thread_ids = malloc(sizeof(long) * (num_of_threads + 1));
-    if (thread_ids == NULL) {
-        perror("Memory allocation failed.");
-        exit(1);
-    }
     sleeping_threads_queue = createThreadQueue();
     path_queue = createPathQueue();
     pathNode_enQueue(path_queue, startPath, 1);
@@ -402,17 +396,16 @@ int main(int argc, char *argv[]) {
 
     for (i = 0; i < num_of_threads + 1; i++) {
         pthread_cond_init(&cv_arr[i], NULL);
-        thread_ids[i] = i;
     }
     for (i = 0; i < num_of_threads; i++) {
-        rc = pthread_create(&threads[i], NULL, search_thread_func, (void *) thread_ids[i]);
+        rc = pthread_create(&threads[i], NULL, search_thread_func, (void *) i);
         if (rc) {
             printf("ERROR in pthread_create(): ""%s\n", strerror(rc));
             exit(1);
         }
     }
     for (i = 0; i < num_of_threads; i++) {
-        threadNode *node = newThreadNode(thread_ids[i], &cv_arr[i]);
+        threadNode *node = newThreadNode(i, &cv_arr[i]);
         threadNode_enQueue(sleeping_threads_queue, node);
     }
     rc = pthread_create(&threads[num_of_threads], NULL, driver_thread_func, NULL); // driver
