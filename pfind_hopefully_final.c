@@ -422,20 +422,22 @@ int main(int argc, char *argv[]) {
     }
     // Clean up and exit
 
-    freePathQueue(path_queue);
-    freeThreadQueue(sleeping_threads_queue);
-    free(path_queue);
-    free(sleeping_threads_queue);
-    free(cv_arr);
-
     pthread_mutex_destroy(&thread_mutex);
     pthread_mutex_destroy(&path_queue_mutex);
     pthread_mutex_destroy(&search_over_mutex);
+
     for (i = 0; i < num_of_threads; i++) {
         pthread_cond_destroy(&cv_arr[i]);
     }
     pthread_cond_destroy(&all_threads_created);
     pthread_cond_destroy(&search_over_cv);
+
+    freePathQueue(path_queue);
+    freeThreadQueue(sleeping_threads_queue);
+    free(path_queue);
+    free(sleeping_threads_queue);
+    free(cv_arr);
+    
     printf("Done searching, found %d files\n", numFilesFound);
     exit(0);
 }
