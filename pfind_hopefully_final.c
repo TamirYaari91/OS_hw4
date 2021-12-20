@@ -173,6 +173,27 @@ int getThreadQueueSize(threadQueue *q) {
     return cnt;
 }
 
+void freePathQueue(pathQueue *q) {
+    pathNode* head = q->head;
+    pathNode* temp = head;
+    while (head != NULL) {
+        head = head->next;
+        free(temp->path);
+        free(temp);
+        temp = head;
+    }
+}
+
+void freeThreadQueue(threadQueue *q) {
+    threadNode* head = q->head;
+    threadNode* temp = head;
+    while (head != NULL) {
+        head = head->next;
+        free(temp);
+        temp = head;
+    }
+}
+
 const char *st; // will store the search term
 long num_of_threads;
 pthread_mutex_t thread_mutex; // lock used in most critical sections
@@ -249,6 +270,8 @@ void searchDirectory(long my_id,
             }
         }
     }
+    free(path);
+    free(display_path);
     closedir(dir);
 }
 
@@ -398,7 +421,13 @@ int main(int argc, char *argv[]) {
         }
     }
     // Clean up and exit
-    // TODO - Free Memory etc.
+
+    freePathQueue(path_queue);
+    freeThreadQueue(sleeping_threads_queue);
+    free(path_queue);
+    free(sleeping_threads_queue);
+    free(cv_arr);
+
     pthread_mutex_destroy(&thread_mutex);
     pthread_mutex_destroy(&path_queue_mutex);
     pthread_mutex_destroy(&search_over_mutex);
