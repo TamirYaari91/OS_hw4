@@ -313,27 +313,18 @@ void *search_thread_func(void *t) { // Main function for searching threads
         if (num_of_threads == threadQueueSize) {
             pathQueueSize = getPathQueueSize(path_queue);
             if (pathQueueSize == 0) { // if all threads are sleeping and no more paths to search -> exit program
-//                printf("---\n");
-                pthread_mutex_unlock(&thread_mutex);
                 search_over = 1;
-//                printf("Thread %ld waking up all other threads in order to finish search properly!\n",my_id);
+                pthread_mutex_unlock(&thread_mutex);
                 for (i = 0; i < num_of_threads; i++) {
                     pthread_cond_signal(&cv_arr[i]);
                 }
                 pthread_cond_signal(&search_over_cv);
-//                printf("Thread %ld finishing search!\n",my_id);
-//                printf("Done searching, found %d files\n", numFilesFound);
-//                exit(0);
-//                printf("Thread %ld notified all threads (including main) and is out! 3rd exit\n",my_id);
                 pthread_exit(NULL);
             }
         }
-//        printf("Thread %ld did some work and going to sleep.\n",my_id);
-        pthread_cond_wait(&cv_arr[my_id],
-                          &thread_mutex); // path queue was empty when checked - will go to sleep and check again once awakened
+        pthread_cond_wait(&cv_arr[my_id],&thread_mutex); // path queue was empty when checked - will go to sleep and check again once awakened
         if (search_over) {
             pthread_mutex_unlock(&thread_mutex);
-//            printf("Thread %ld is out! 2nd exit\n",my_id);
             pthread_exit(NULL);
         }
         pthread_mutex_unlock(&thread_mutex);
@@ -418,6 +409,8 @@ int main(int argc, char *argv[]) {
         }
     }
     // Clean up and exit
+    printf("END OF MAIN\n");
+    // TODO - Free Memory etc.
     pthread_mutex_destroy(&thread_mutex);
     pthread_mutex_destroy(&path_queue_mutex);
     pthread_mutex_destroy(&search_over_mutex);
