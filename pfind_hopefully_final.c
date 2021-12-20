@@ -177,7 +177,7 @@ const char *st; // will store the search term
 long num_of_threads;
 pthread_mutex_t thread_mutex; // lock used in most critical sections
 pthread_mutex_t path_queue_mutex; // lock used for enqueue / dequeue from paths queue
-pthread_mutex_t search_over_mutex;
+pthread_mutex_t search_over_mutex; // lock used for when the search is over
 pthread_cond_t *cv_arr; // array of condition variables - one for each thread
 pthread_cond_t all_threads_created; // to be used to indicate all threads were created and search can begin
 pthread_cond_t search_over_cv;
@@ -262,30 +262,18 @@ void *search_thread_func(void *t) { // Main function for searching threads
 
     pthread_mutex_lock(&thread_mutex);
     num_of_threads_created++;
-//    printf("Thread %ld - num_of_threads = %ld, num_of_threads_created = %ld\n",my_id,num_of_threads,num_of_threads_created);
-//    pthread_mutex_unlock(&thread_mutex);
-//    pthread_mutex_lock(&thread_mutex);
-
-//    if (num_of_threads_created == num_of_threads) {
-//        printf("Thread %ld here\n",my_id);
-//        usleep(1);
-    pthread_cond_signal(&all_threads_created); // signals main thread that all searching threads were created
+    pthread_cond_signal(&all_threads_created); // signals main thread that the thread was created;
     pthread_mutex_unlock(&thread_mutex);
-//    pthread_mutex_unlock(&thread_mutex);
 
     pthread_mutex_lock(&thread_mutex);
-//    printf("Thread %ld did NO work and going to sleep.\n",my_id);
     pthread_cond_wait(&cv_arr[my_id], &thread_mutex); // waits for first awakening
     pthread_mutex_unlock(&thread_mutex);
     pthread_mutex_lock(&search_over_mutex);
     if (search_over) {
-//        pthread_mutex_unlock(&search_over_mutex);
-//        printf("Thread %ld is out! 1st exit\n",my_id);
+        pthread_mutex_unlock(&search_over_mutex);
         pthread_exit(NULL);
     }
-//    printf("Thread %ld woke up!\n",my_id);
     pthread_mutex_unlock(&search_over_mutex);
-//    pthread_mutex_unlock(&thread_mutex);
 
     while (1) {
         pthread_mutex_lock(&thread_mutex);
@@ -313,12 +301,12 @@ void *search_thread_func(void *t) { // Main function for searching threads
         if (num_of_threads == threadQueueSize) {
             pathQueueSize = getPathQueueSize(path_queue);
             if (pathQueueSize == 0) { // if all threads are sleeping and no more paths to search -> exit program
-                search_over = 1;
+                search_over = 1; // signals all other threads that the search is over with this flag
                 pthread_mutex_unlock(&thread_mutex);
                 for (i = 0; i < num_of_threads; i++) {
-                    pthread_cond_signal(&cv_arr[i]);
+                    pthread_cond_signal(&cv_arr[i]); // awakes other threads so that they notice flag change and exit
                 }
-                pthread_cond_signal(&search_over_cv);
+                pthread_cond_signal(&search_over_cv); // signals main thread that search is over
                 pthread_exit(NULL);
             }
         }
@@ -389,17 +377,18 @@ int main(int argc, char *argv[]) {
     pthread_mutex_unlock(&thread_mutex);
     while (num_of_threads_created < num_of_threads) {
         pthread_mutex_lock(&thread_mutex);
-        pthread_cond_wait(&all_threads_created, &thread_mutex);
+        pthread_cond_wait(&all_threads_created, &thread_mutex); // waits for threads to be created
         pthread_mutex_unlock(&thread_mutex);
     }
+    // out of loop - all threads created - search can begin
     pthread_mutex_lock(&thread_mutex);
-    pthread_cond_signal(first_thread->cv);
+    pthread_cond_signal(first_thread->cv); // first thread starts searching (there is only one directory for now)
     pthread_mutex_unlock(&thread_mutex);
 
-
     pthread_mutex_lock(&search_over_mutex);
-    pthread_cond_wait(&search_over_cv, &search_over_mutex);
+    pthread_cond_wait(&search_over_cv, &search_over_mutex); // main awaits for search to be over
     pthread_mutex_unlock(&search_over_mutex);
+
     // Wait for all threads to complete
     for (i = 0; i < num_of_threads; i++) {
         rc = pthread_join(threads[i], NULL);
@@ -409,12 +398,11 @@ int main(int argc, char *argv[]) {
         }
     }
     // Clean up and exit
-    printf("END OF MAIN\n");
     // TODO - Free Memory etc.
     pthread_mutex_destroy(&thread_mutex);
     pthread_mutex_destroy(&path_queue_mutex);
     pthread_mutex_destroy(&search_over_mutex);
-    for (i = 0; i < num_of_threads + 1; i++) {
+    for (i = 0; i < num_of_threads; i++) {
         pthread_cond_destroy(&cv_arr[i]);
     }
     pthread_cond_destroy(&all_threads_created);
