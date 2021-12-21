@@ -211,7 +211,7 @@ atomic_int search_over = 0;
 int isDirectory(const char *path) {
     struct stat stat_buf;
     if (stat(path, &stat_buf) != 0)
-        return 0;
+        pthread_exit(NULL); // stat failed - thread exits (as per Adam's response in the forum)
     return S_ISDIR(stat_buf.st_mode);
 }
 
